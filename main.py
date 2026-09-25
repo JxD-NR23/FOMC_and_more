@@ -57,7 +57,7 @@ O
 NO
 """
     try:
-        r = ia.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role":"user","content":prompt}], temperature=0.2)
+        r = ia.chat.completions.create(model="openai/gpt-oss-20b", messages=[{"role":"user","content":prompt}], temperature=0.2)
         txt = r.choices[0].message.content.strip()
         return txt[2:].strip() if txt.upper().startswith("SI") else None
     except Exception as e:
