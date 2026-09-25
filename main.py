@@ -1,27 +1,28 @@
 # ==============================================================================
-# BOT FOMC V3.5 - FINAL DEFINITIVO - REINOSA / 25 SEPTIEMBRE 2026
+# BOT FOMC V3.6 - FINAL DEFINITIVO ANTI-CORVETTE - REINOSA / 25 SEPT 2026
+# Fix: El V3.5 se colaba Corvette porque "fed" estaba dentro de "federal"
+# Solución: Regex con \b para palabras enteras + lista negra directa
 # Presidente FED: Kevin Warsh (desde 22 Mayo 2026)
-# Corrige bug V3.4: Corvette se colaba por alucinación de la IA
-# Solución: Pre-filtro duro ANTES de llamar a Groq
 # ==============================================================================
 
 import os
 import requests
 import time
 import json
+import re # <--- NUEVO IMPORT PARA EL FIX ANTI-SUBSTRING
 import telebot
 from groq import Groq
 from flask import Flask
 import threading
 
-print(">>> main.py V3.5 cargado... Pre-filtro ON...", flush=True)
+print(">>> main.py V3.6 cargado... Fix anti-Corvette ON...", flush=True)
 
 # --- 1. TRUCO ANTI-SUEÑO RENDER ---
 app = Flask(__name__)
 
 @app.route('/')
 def pagina_principal():
-    return "Bot FOMC v3.5 ON - Kevin Warsh - Pre-filtro anti-basura - Activo 24/7"
+    return "Bot FOMC v3.6 ON - Kevin Warsh - Regex + Blacklist - Activo 24/7"
 
 def iniciar_web_falsa():
     print(">>> Web falsa arrancando en puerto 10000...", flush=True)
@@ -30,17 +31,12 @@ def iniciar_web_falsa():
 threading.Thread(target=iniciar_web_falsa, daemon=True).start()
 time.sleep(2)
 
-# --- 2. CLAVES ---
+# --- 2. CLAVES SECRETAS ---
 print(">>> Leyendo claves...", flush=True)
 TOKEN_TELEGRAM = os.getenv("TELEGRAM_TOKEN")
 ID_CHAT = os.getenv("CHAT_ID")
 CLAVE_GROQ = os.getenv("GROQ_KEY")
 CLAVE_NOTICIAS = os.getenv("NEWS_KEY")
-
-if not TOKEN_TELEGRAM: print("!!! FALTA TELEGRAM_TOKEN!!!", flush=True)
-if not ID_CHAT: print("!!! FALTA CHAT_ID!!!", flush=True)
-if not CLAVE_GROQ: print("!!! FALTA GROQ_KEY!!!", flush=True)
-if not CLAVE_NOTICIAS: print("!!! FALTA NEWS_KEY!!!", flush=True)
 
 try:
     bot_telegram = telebot.TeleBot(TOKEN_TELEGRAM)
@@ -59,67 +55,61 @@ except:
     noticias_ya_enviadas = set()
     print(">>> Sin historial previo", flush=True)
 
-# --- 4. CEREBRO V3.5: PRE-FILTRO + TRADUCCION + ANALISIS FIJO ---
+# --- 4. CEREBRO V3.6: BLACKLIST + REGEX + ANALISIS FIJO ---
 def es_relevante_y_traducir(titulo_en_ingles, descripcion_en_ingles):
-    texto_completo_lower = (titulo_en_ingles + " " + descripcion_en_ingles).lower()
+    titulo_lower = titulo_en_ingles.lower()
+    completo_lower = (titulo_en_ingles + " " + descripcion_en_ingles).lower()
 
-    # --- PASO 1: PRE-FILTRO DURO ANTI-BASURA ---
-    # Si el titular no contiene NINGUNA de estas palabras, ni gastamos IA
-    # Esto evita que el Corvette de 1954 se cuele por alucinación
-    # y ahorra cuota de Groq
-    palabras_obligatorias = ["fed", "fomc", "warsh", "federal reserve", "powell"]
-    if not any(p in texto_completo_lower for p in palabras_obligatorias):
-        return None # Fuera directo, sin llamar a la IA
+    # PASO 1: LISTA NEGRA DIRECTA - Estos NUNCA pasan, ahorramos IA
+    lista_negra = ["corvette", "taylor swift", "gift nifty", "wedded bliss", "chevrolet", "ipl", "baseball"]
+    if any(palabra in titulo_lower for palabra in lista_negra):
+        return None
 
-    # --- PASO 2: SI PASA EL PRE-FILTRO, TRADUCIMOS CON IA DETERMINISTA ---
-    prompt_traduccion = f"""
-Traduce a español de España en 1 frase corta (max 20 palabras): "{titulo_en_ingles}"
+    # PASO 2: PRE-FILTRO REGEX - Palabras ENTERAS en el TITULO
+    # \b significa frontera de palabra. Así "fed" solo vale si es "fed", no si es "federal" o "offered"
+    # Buscamos SOLO en el titulo, no en la descripcion
+    patron_obligatorio = r'\b(fed|fomc|warsh|powell|federal reserve)\b'
+    if not re.search(patron_obligatorio, titulo_lower):
+        return None # No es FED directa, fuera sin gastar Groq
 
-Si es sobre Taylor Swift, boda, Corvette, coche, béisbol, cricket -> responde NO.
-Si es sobre FED/FOMC/Warsh -> responde SI + traducción.
-
-Formato obligatorio:
+    # PASO 3: TRADUCCION DETERMINISTA
+    prompt = f"""Traduce a español de España en 1 frase corta max 20 palabras: "{titulo_en_ingles}"
+Si no es FED/FOMC/Warsh -> responde NO
+Si es FED/FOMC/Warsh -> responde:
 SI
-[traducción corta]
-O
-NO
-"""
+[traducción]"""
     try:
-        respuesta_ia = cliente_ia.chat.completions.create(
-            model="openai/gpt-oss-20b", # El unico que funciona con tu clave nueva
-            messages=[{"role": "user", "content": prompt_traduccion}],
-            temperature=0.0 # 0.0 = siempre misma traducción, no inventa razonamientos distintos
+        r = cliente_ia.chat.completions.create(
+            model="openai/gpt-oss-20b",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.0 # 0.0 = siempre igual, no inventa
         )
-        txt = respuesta_ia.choices[0].message.content.strip()
+        txt = r.choices[0].message.content.strip()
         if not txt.upper().startswith("SI"):
             return None
 
         traduccion = txt[2:].strip().split('\n')[0]
 
-        # --- PASO 3: ANALISIS ECONOMICO FIJO (LO HACEMOS NOSOTROS, NO LA IA) ---
-        # Así nunca te dirá "neutral" cuando es subida de tipos
-        if any(x in texto_completo_lower for x in ["hike", "raise", "tighten", "hot", "inflation", "higher yield", "selloff"]):
-            sentimiento = "🔴 HAWKISH (FED dura - sube tipos)"
-            analisis_bolsa = "Bolsa: Negativo - subidas de tipos presionan y encarecen crédito"
-            analisis_btc = "Bitcoin: Negativo - tasas altas favorecen dólar/bonos vs riesgo"
-        elif any(x in texto_completo_lower for x in ["cut", "pause", "dovish", "pivot", "lower rate"]):
-            sentimiento = "🟢 DOVISH (FED blanda - baja tipos)"
-            analisis_bolsa = "Bolsa: Positivo - bajada tipos = más liquidez"
-            analisis_btc = "Bitcoin: Positivo - dinero barato impulsa crypto"
+        # PASO 4: ANALISIS FIJO (nosotros, no la IA)
+        if any(x in completo_lower for x in ["hike", "raise", "tighten", "hot", "inflation", "higher yield", "selloff", "bets"]):
+            sentimiento = "🔴 HAWKISH (FED dura - posible subida)"
+            analisis = "Bolsa: Negativo - tipos altos presionan\nBitcoin: Negativo - dólar/bonos más atractivos"
+        elif any(x in completo_lower for x in ["cut", "pause", "dovish", "pivot", "lower rate"]):
+            sentimiento = "🟢 DOVISH (FED blanda - posible bajada)"
+            analisis = "Bolsa: Positivo - más liquidez\nBitcoin: Positivo - impulsa riesgo"
         else:
             sentimiento = "🟡 NEUTRAL / DECLARACIÓN"
-            analisis_bolsa = "Bolsa: A vigilar - pendiente de tono Warsh/FOMC"
-            analisis_btc = "Bitcoin: A vigilar - pendiente de tono FED"
+            analisis = "Bolsa: A vigilar\nBitcoin: A vigilar"
 
-        return f"{traduccion}\n\n📊 {sentimiento}\n{analisis_bolsa}\n{analisis_btc}"
+        return f"{traduccion}\n\n📊 {sentimiento}\n{analisis}"
 
     except Exception as e:
         print(f"Error Groq: {e}", flush=True)
         return None
 
-# --- 5. BUSCAR NOTICIAS ---
+# --- 5. BUSCADOR NEWSAPI ---
 def buscar_noticias_en_api():
-    consulta = '"Federal Reserve" OR "FOMC" OR "Kevin Warsh" OR "Fed Chair Warsh"'
+    consulta = '"Federal Reserve" OR "FOMC" OR "Kevin Warsh" OR "Fed Chair"'
     url = f"https://newsapi.org/v2/everything?q={consulta}&language=en&sortBy=publishedAt&pageSize=10&apiKey={CLAVE_NOTICIAS}"
     try:
         return requests.get(url, timeout=15).json().get('articles', [])
@@ -129,10 +119,9 @@ def buscar_noticias_en_api():
 
 # --- 6. BUCLE 24/7 ---
 print("=================================================", flush=True)
-print("Bot FOMC v3.5 FINAL con PRE-FILTRO iniciado", flush=True)
-print("Presidente: Kevin Warsh", flush=True)
-print("Modelo: openai/gpt-oss-20b | Temp 0.0", flush=True)
-print("Filtro: Palabra FED/FOMC/Warsh obligatoria en titulo", flush=True)
+print("Bot FOMC v3.6 con REGEX iniciado", flush=True)
+print("Filtro: \\b(fed|fomc|warsh|powell)\\b en TITULO obligatorio", flush=True)
+print("Blacklist: corvette, taylor swift, gift nifty", flush=True)
 print("=================================================", flush=True)
 
 while True:
@@ -156,7 +145,6 @@ while True:
                     print(f"❌ DESCARTADO (no es FED directa)", flush=True)
 
                 noticias_ya_enviadas.add(titulo)
-                # Guardamos historial en disco
                 try:
                     with open("historial.json", "w") as f:
                         json.dump(list(noticias_ya_enviadas)[-200:], f)
