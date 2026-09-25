@@ -1,1 +1,3 @@
-# FOMC_and_more
+FOMC & more...
+# V1 Bot FOMC Traductor
+Traduce noticias de la FED al español con IA
