@@ -1,159 +1,117 @@
-# ==============================================================================
-# BOT FOMC V3.6 - FINAL DEFINITIVO ANTI-CORVETTE - REINOSA / 25 SEPT 2026
-# Fix: El V3.5 se colaba Corvette porque "fed" estaba dentro de "federal"
-# Solución: Regex con \b para palabras enteras + lista negra directa
-# Presidente FED: Kevin Warsh (desde 22 Mayo 2026)
-# ==============================================================================
+# BOT FOMC V4.0 - SOLO KEVIN WARSH / DECISION TIPOS / FOMC / FEDWATCH
+# Requisitos: pip install requests python-telegram-bot deep-translator openai schedule
 
-import os
-import requests
-import time
-import json
-import re # <--- NUEVO IMPORT PARA EL FIX ANTI-SUBSTRING
-import telebot
-from groq import Groq
-from flask import Flask
-import threading
+import requests, time, schedule
+from datetime import datetime
+from deep_translator import GoogleTranslator
+import openai # para resumen
 
-print(">>> main.py V3.6 cargado... Fix anti-Corvette ON...", flush=True)
+# ========== CONFIG ==========
+TELEGRAM_TOKEN = "TU_TOKEN"
+TELEGRAM_CHAT_ID = "TU_CHAT_ID"
+NEWSAPI_KEY = "TU_NEWSAPI"
+OPENAI_KEY = "TU_OPENAI"
 
-# --- 1. TRUCO ANTI-SUEÑO RENDER ---
-app = Flask(__name__)
+# Palabras clave ULTRA ESTRICTAS - NADA MAS
+KEYWORDS_PERMITIDOS = {
+    "kevin_warsh": ["kevin warsh", "warsh"],
+    "fomc_decision": ["fed interest rate decision", "fomc decision", "fed rate decision", "federal reserve announces rate"],
+    "fomc_statement": ["fomc statement", "fomc comunicado"],
+    "fomc_conference": ["powell press conference", "fomc press conference", "fed chair conference", "jerome powell conference", "warsh press conference"],
+    "fedwatch": ["fedwatch", "cme fedwatch", "fed rate probabilities", "probabilidad tipos fed"]
+}
 
-@app.route('/')
-def pagina_principal():
-    return "Bot FOMC v3.6 ON - Kevin Warsh - Regex + Blacklist - Activo 24/7"
+# Fechas FOMC 2026 (actualiza cada año)
+FECHAS_FOMC_2026 = [
+    "2026-01-28", "2026-03-18", "2026-05-06",
+    "2026-06-17", "2026-07-29", "2026-09-16",
+    "2026-11-04", "2026-12-09"
+]
 
-def iniciar_web_falsa():
-    print(">>> Web falsa arrancando en puerto 10000...", flush=True)
-    app.run(host='0.0.0.0', port=10000)
+traductor = GoogleTranslator(source='en', target='es')
 
-threading.Thread(target=iniciar_web_falsa, daemon=True).start()
-time.sleep(2)
-
-# --- 2. CLAVES SECRETAS ---
-print(">>> Leyendo claves...", flush=True)
-TOKEN_TELEGRAM = os.getenv("TELEGRAM_TOKEN")
-ID_CHAT = os.getenv("CHAT_ID")
-CLAVE_GROQ = os.getenv("GROQ_KEY")
-CLAVE_NOTICIAS = os.getenv("NEWS_KEY")
-
-try:
-    bot_telegram = telebot.TeleBot(TOKEN_TELEGRAM)
-    cliente_ia = Groq(api_key=CLAVE_GROQ)
-    print(">>> Clientes OK", flush=True)
-except Exception as e:
-    print(f"!!! ERROR INICIO: {e}!!!", flush=True)
-    time.sleep(999999)
-
-# --- 3. MEMORIA CON HISTORIAL EN DISCO ---
-try:
-    with open("historial.json", "r") as f:
-        noticias_ya_enviadas = set(json.load(f))
-    print(f">>> Historial cargado: {len(noticias_ya_enviadas)}", flush=True)
-except:
-    noticias_ya_enviadas = set()
-    print(">>> Sin historial previo", flush=True)
-
-# --- 4. CEREBRO V3.6: BLACKLIST + REGEX + ANALISIS FIJO ---
-def es_relevante_y_traducir(titulo_en_ingles, descripcion_en_ingles):
-    titulo_lower = titulo_en_ingles.lower()
-    completo_lower = (titulo_en_ingles + " " + descripcion_en_ingles).lower()
-
-    # PASO 1: LISTA NEGRA DIRECTA - Estos NUNCA pasan, ahorramos IA
-    lista_negra = ["corvette", "taylor swift", "gift nifty", "wedded bliss", "chevrolet", "ipl", "baseball"]
-    if any(palabra in titulo_lower for palabra in lista_negra):
-        return None
-
-    # PASO 2: PRE-FILTRO REGEX - Palabras ENTERAS en el TITULO
-    # \b significa frontera de palabra. Así "fed" solo vale si es "fed", no si es "federal" o "offered"
-    # Buscamos SOLO en el titulo, no en la descripcion
-    patron_obligatorio = r'\b(fed|fomc|warsh|powell|federal reserve)\b'
-    if not re.search(patron_obligatorio, titulo_lower):
-        return None # No es FED directa, fuera sin gastar Groq
-
-    # PASO 3: TRADUCCION DETERMINISTA
-    prompt = f"""Traduce a español de España en 1 frase corta max 20 palabras: "{titulo_en_ingles}"
-Si no es FED/FOMC/Warsh -> responde NO
-Si es FED/FOMC/Warsh -> responde:
-SI
-[traducción]"""
+def traducir(texto):
     try:
-        r = cliente_ia.chat.completions.create(
-            model="openai/gpt-oss-20b",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.0 # 0.0 = siempre igual, no inventa
+        return traductor.translate(texto)
+    except:
+        return texto
+
+def resumir_con_ia(texto_en):
+    """Resumen ultra corto de lo importante"""
+    try:
+        client = openai.OpenAI(api_key=OPENAI_KEY)
+        prompt = f"Resume en 3 bullets en ESPAÑOL lo mas importante para traders de esta noticia FED, enfocado en tipos de interes, tono hawkish/dovish y impacto mercado. Noticia: {texto_en}"
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role":"user","content":prompt}],
+            max_tokens=250
         )
-        txt = r.choices[0].message.content.strip()
-        if not txt.upper().startswith("SI"):
-            return None
+        return resp.choices[0].message.content
+    except Exception as e:
+        return "Resumen no disponible"
 
-        traduccion = txt[2:].strip().split('\n')[0]
+def enviar_telegram(titulo_es, resumen_es, original_en, fuente):
+    mensaje = f"""
+🚨 **{titulo_es}**
 
-        # PASO 4: ANALISIS FIJO (nosotros, no la IA)
-        if any(x in completo_lower for x in ["hike", "raise", "tighten", "hot", "inflation", "higher yield", "selloff", "bets"]):
-            sentimiento = "🔴 HAWKISH (FED dura - posible subida)"
-            analisis = "Bolsa: Negativo - tipos altos presionan\nBitcoin: Negativo - dólar/bonos más atractivos"
-        elif any(x in completo_lower for x in ["cut", "pause", "dovish", "pivot", "lower rate"]):
-            sentimiento = "🟢 DOVISH (FED blanda - posible bajada)"
-            analisis = "Bolsa: Positivo - más liquidez\nBitcoin: Positivo - impulsa riesgo"
+📝 **RESUMEN CLAVE:**
+{resumen_es}
+
+📰 Original: {original_en}
+🔗 {fuente}
+⏰ {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}
+"""
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": mensaje, "parse_mode": "Markdown"})
+
+def es_noticia_valida(titulo):
+    t = titulo.lower()
+    # SOLO si contiene warsh o FOMC/decision/conferencia/fedwatch
+    for categoria, palabras in KEYWORDS_PERMITIDOS.items():
+        for p in palabras:
+            if p in t:
+                return True, categoria
+    return False, None
+
+def check_newsapi():
+    url = f"https://newsapi.org/v2/everything?q=Federal Reserve OR FOMC OR Kevin Warsh OR FedWatch&language=en&sortBy=publishedAt&pageSize=20&apiKey={NEWSAPI_KEY}"
+    r = requests.get(url).json()
+    for art in r.get('articles', []):
+        titulo = art['title']
+        valido, cat = es_noticia_valida(titulo)
+        if valido:
+            print(f"✅ ENVIADO [{cat}]: {titulo}")
+            titulo_es = traducir(titulo)
+            desc_es = traducir(art.get('description',''))
+            resumen = resumir_con_ia(titulo + " " + art.get('description',''))
+            enviar_telegram(f"{cat.upper()} | {titulo_es}", resumen, titulo, art['url'])
         else:
-            sentimiento = "🟡 NEUTRAL / DECLARACIÓN"
-            analisis = "Bolsa: A vigilar\nBitcoin: A vigilar"
+            print(f"❌ DESCARTADO (no es lo pedido): {titulo}")
 
-        return f"{traduccion}\n\n📊 {sentimiento}\n{analisis}"
+def recordatorio_fechas():
+    hoy = datetime.now().strftime("%Y-%m-%d")
+    for fecha in FECHAS_FOMC_2026:
+        dias = (datetime.strptime(fecha, "%Y-%m-%d") - datetime.now()).days
+        if dias == 7:
+            enviar_telegram(f"RECORDATORIO FOMC - 7 DIAS", f"Quedan 7 dias para la decision de tipos USA: {fecha}", f"FOMC meeting on {fecha}", "FED Calendar")
+        if dias == 1:
+            enviar_telegram(f"RECORDATORIO FOMC - MAÑANA", f"Mañana {fecha} DECISION TIPOS FED + COMUNICADO + CONFERENCIA", f"FOMC tomorrow {fecha}", "FED Calendar")
+        if dias == 0:
+            enviar_telegram(f"HOY ES DIA FOMC", f"HOY {fecha} a las 20:00 CET decision, 20:30 conferencia. Atentos a Kevin Warsh si habla.", f"FOMC Today {fecha}", "FED Calendar")
 
-    except Exception as e:
-        print(f"Error Groq: {e}", flush=True)
-        return None
+# ========== LOOP PRINCIPAL ==========
+def main():
+    print("BOT V4.0 INICIADO - SOLO WARSH / FOMC / FEDWATCH")
+    schedule.every().day.at("09:00").do(recordatorio_fechas)
+    while True:
+        try:
+            check_newsapi()
+            schedule.run_pending()
+            print("Durmiendo 15 min...")
+            time.sleep(900)
+        except Exception as e:
+            print(f"Error: {e}")
+            time.sleep(60)
 
-# --- 5. BUSCADOR NEWSAPI ---
-def buscar_noticias_en_api():
-    consulta = '"Federal Reserve" OR "FOMC" OR "Kevin Warsh" OR "Fed Chair"'
-    url = f"https://newsapi.org/v2/everything?q={consulta}&language=en&sortBy=publishedAt&pageSize=10&apiKey={CLAVE_NOTICIAS}"
-    try:
-        return requests.get(url, timeout=15).json().get('articles', [])
-    except Exception as e:
-        print(f"Error NewsAPI: {e}", flush=True)
-        return []
-
-# --- 6. BUCLE 24/7 ---
-print("=================================================", flush=True)
-print("Bot FOMC v3.6 con REGEX iniciado", flush=True)
-print("Filtro: \\b(fed|fomc|warsh|powell)\\b en TITULO obligatorio", flush=True)
-print("Blacklist: corvette, taylor swift, gift nifty", flush=True)
-print("=================================================", flush=True)
-
-while True:
-    try:
-        noticias = buscar_noticias_en_api()
-        print(f">>> NewsAPI devolvio {len(noticias)}", flush=True)
-
-        for n in noticias:
-            titulo = n['title']
-            if titulo not in noticias_ya_enviadas:
-                desc = n.get('description') or ""
-                print(f"Analizando: {titulo[:90]}...", flush=True)
-
-                res = es_relevante_y_traducir(titulo, desc)
-
-                if res:
-                    msg = f"🚨 *FED / FOMC - Kevin Warsh* 🚨\n\n{res}\n\n📰 *Original:* {titulo}\n🔗 {n['url']}"
-                    bot_telegram.send_message(ID_CHAT, msg, parse_mode='Markdown')
-                    print(f"✅ ENVIADO A TELEGRAM", flush=True)
-                else:
-                    print(f"❌ DESCARTADO (no es FED directa)", flush=True)
-
-                noticias_ya_enviadas.add(titulo)
-                try:
-                    with open("historial.json", "w") as f:
-                        json.dump(list(noticias_ya_enviadas)[-200:], f)
-                except:
-                    pass
-
-        print("Durmiendo 15 min...", flush=True)
-        time.sleep(900)
-
-    except Exception as e:
-        print(f"Error bucle: {e}", flush=True)
-        time.sleep(60)
+if __name__ == "__main__":
+    main()
