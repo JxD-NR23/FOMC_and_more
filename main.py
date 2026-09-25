@@ -1,130 +1,100 @@
-# ===============================================
-# BOT FOMC V3 - EXPLICACIÓN ULTRA DETALLADA
-# Creado para ti en Reinosa - Septiembre 2026
-# Presidente actual FED: Kevin Warsh (desde 22 Mayo 2026)
-# ===============================================
+# BOT FOMC V3.1 - FINAL CORREGIDO - KEVIN WARSH PRESIDENTE
+import os, requests, time, telebot
+from groq import Groq
+from flask import Flask
+import threading
 
-# --- LIBRERÍAS: Las herramientas que importamos ---
-import os # Para leer las claves secretas que guardaste en Render
-import requests # Para hacer peticiones a NewsAPI (pedir noticias)
-import time # Para hacer pausas (que no se vuelva loco pidiendo noticias)
-import telebot # La librería de Telegram para enviar mensajes
-from groq import Groq # La IA gratis que traduce y filtra
-from flask import Flask # Truco: creamos una mini-web falsa para que Render no nos apague el bot gratis
-import threading # Para que la web falsa y el bot funcionen a la vez
+# Print ANTES de todo para saber si el archivo se ejecuta
+print(">>> main.py cargado...", flush=True)
 
-# --- TRUCO ANTI-SUEÑO PARA RENDER GRATIS ---
-# Render si ve un "Web Service" gratis lo apaga a los 15 min si no hay tráfico.
-# Creamos una web que dice "ON" y la ponemos a correr en otro hilo.
-app = Flask(__name__) # Creamos la app web
-
-@app.route('/') # Cuando alguien entre a https://fomc-and-more.onrender.com
+app = Flask(__name__)
+@app.route('/')
 def home():
-    return "Bot FOMC v3 ON - Presidente: Kevin Warsh - Filtrando noticias reales"
+    return "Bot FOMC v3.1 ON - Kevin Warsh - Activo"
 
-# Esta función arranca la web en el puerto 10000 que pide Render
 def run_web():
+    print(">>> Flask arrancando en puerto 10000...", flush=True)
     app.run(host='0.0.0.0', port=10000)
 
-# threading.Thread = lo lanza en segundo plano, daemon=True = si el bot muere, la web también
 threading.Thread(target=run_web, daemon=True).start()
+time.sleep(2) # dejamos que Flask arranque
 
-# --- CLAVES SECRETAS ---
-# os.getenv lee las variables que pusiste en Render > Environment. Así no se ven en GitHub.
-TOKEN = os.getenv("TELEGRAM_TOKEN") # Token que te dio @BotFather
-CHAT_ID = os.getenv("CHAT_ID") # Tu ID que sacaste con @userinfobot
-GROQ_KEY = os.getenv("GROQ_KEY") # Clave de groq.com (IA gratis)
-NEWS_KEY = os.getenv("NEWS_KEY") # Clave de newsapi.org
+# --- LEER CLAVES CON COMPROBACIÓN ---
+print(">>> Leyendo claves...", flush=True)
+TOKEN = os.getenv("TELEGRAM_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID")
+GROQ_KEY = os.getenv("GROQ_KEY")
+NEWS_KEY = os.getenv("NEWS_KEY")
 
-# --- INICIAMOS LOS BOTS ---
-bot = telebot.TeleBot(TOKEN) # Cliente de Telegram listo para enviar
-ia = Groq(api_key=GROQ_KEY) # Cliente de IA listo para pensar
-enviados = set() # Una "bolsa" donde guardamos títulos ya enviados para no repetirlos
+# Si falta alguna, lo decimos en Logs y no crasheamos a lo loco
+if not TOKEN: print("!!! FALTA TELEGRAM_TOKEN en Render > Environment!!!", flush=True)
+if not CHAT_ID: print("!!! FALTA CHAT_ID!!!", flush=True)
+if not GROQ_KEY: print("!!! FALTA GROQ_KEY!!!", flush=True)
+if not NEWS_KEY: print("!!! FALTA NEWS_KEY!!!", flush=True)
 
-# --- CEREBRO DEL BOT: FILTRA Y TRADUCE ---
+try:
+    bot = telebot.TeleBot(TOKEN)
+    ia = Groq(api_key=GROQ_KEY)
+    print(">>> Clientes Telegram y Groq OK", flush=True)
+except Exception as e:
+    print(f"!!! ERROR INICIANDO CLIENTES: {e}!!!", flush=True)
+    # No seguimos si no hay claves
+    time.sleep(999999)
+
+enviados = set()
+
 def es_relevante_y_traducir(titulo, desc):
-    """
-    Esta es la función más importante.
-    Recibe un título en inglés y decide si es BASURA o es FED de verdad.
-    """
-    prompt = f"""
-Eres un analista financiero español experto.
-
-Noticia a analizar: "{titulo} - {desc}"
-
-PRESIDENTE ACTUAL DE LA FED: Kevin Warsh (desde Mayo 2026). Jerome Powell ya NO es presidente, es solo gobernador.
-
-INSTRUCCIONES:
-1. ¿Esta noticia es REALMENTE sobre la Reserva Federal, FOMC, tipos de interés de EEUU, o declaraciones de Kevin Warsh?
-   - SI es sobre béisbol (Astros), cricket indio (Sensex, Nifty), Trump-Xi sin mencionar a la FED, o bolsa de India, responde NO.
-   - SI es sobre FED/FOMC/Warsh, responde SI.
-
-2. Si es SI, haz esto en ESPAÑOL DE ESPAÑA:
-   - Traduce el titular
-   - En 2 líneas: ¿Qué significa? ¿Es bueno o malo para BOLSA y BITCOIN? (ej: si suben tipos es malo, si los bajan es bueno)
-
-Formato OBLIGATORIO:
+    prompt = f"""Eres analista español.
+Noticia: "{titulo} - {desc}"
+Presidente FED: Kevin Warsh desde Mayo 2026. Powell NO es presidente.
+¿Es REALMENTE sobre FED/FOMC/Warsh/tipos EEUU?
+Si es béisbol, Sensex, Trump-Xi sin FED -> NO.
+Si es SI, traduce al español de España y di en 2 líneas si es bueno/malo para BOLSA y BITCOIN.
+Formato:
 SI
-[Tu traducción y análisis en español]
+[traduccion]
 O
 NO
 """
     try:
-        # Llamamos a la IA Llama 3.1 que es rápida y gratis
-        r = ia.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[{"role":"user","content": prompt}],
-            temperature=0.2 # 0.2 = más serio y preciso, no inventa
-        )
+        r = ia.chat.completions.create(model="llama-3.1-8b-instant", messages=[{"role":"user","content":prompt}], temperature=0.2)
         txt = r.choices[0].message.content.strip()
-        # Si la IA dice que SI es relevante, devolvemos el texto. Si dice NO, devolvemos None (nada)
-        if txt.upper().startswith("SI"):
-            return txt[2:].strip() # Quitamos el "SI" y dejamos solo la traducción
-        else:
-            return None
+        return txt[2:].strip() if txt.upper().startswith("SI") else None
     except Exception as e:
-        print("Error Groq:", e)
+        print(f"Error Groq: {e}", flush=True)
         return None
 
 def buscar_noticias():
-    """
-    Pide noticias a NewsAPI.
-    Antes buscábamos "FED" y nos traía de todo. Ahora buscamos frases exactas con comillas.
-    """
-    # q= con comillas = solo frases exactas. Así evitamos "Federal" de béisbol.
-    query = '"Federal Reserve" OR "FOMC" OR "Kevin Warsh" OR "Fed Chair Warsh"'
-    url = f"https://newsapi.org/v2/everything?q={query}&language=en&sortBy=publishedAt&pageSize=10&apiKey={NEWS_KEY}"
+    q = '"Federal Reserve" OR "FOMC" OR "Kevin Warsh"'
+    url = f"https://newsapi.org/v2/everything?q={q}&language=en&sortBy=publishedAt&pageSize=10&apiKey={NEWS_KEY}"
     try:
-        data = requests.get(url, timeout=15).json()
-        return data.get('articles', [])
+        return requests.get(url, timeout=15).json().get('articles', [])
     except Exception as e:
-        print("Error NewsAPI:", e)
+        print(f"Error NewsAPI: {e}", flush=True)
         return []
 
-# --- BUCLE INFINITO: EL CORAZÓN QUE NUNCA PARA ---
-print("Bot FOMC v3 iniciado... Presidente actual Kevin Warsh. Esperando noticias reales...")
+# --- BUCLE PRINCIPAL ---
+print("=================================================", flush=True)
+print("Bot FOMC v3.1 iniciado - Presidente Kevin Warsh", flush=True)
+print("=================================================", flush=True)
+
 while True:
     try:
-        for noticia in buscar_noticias():
-            titulo = noticia['title']
-            # Si no lo hemos enviado antes
+        arts = buscar_noticias()
+        print(f">>> NewsAPI devolvió {len(arts)} artículos", flush=True)
+        for n in arts:
+            titulo = n['title']
             if titulo not in enviados:
-                desc = noticia.get('description') or ""
-                print(f"Analizando: {titulo[:80]}...")
-                resultado = es_relevante_y_traducir(titulo, desc)
-
-                if resultado: # Solo si la IA dijo SI
-                    mensaje_final = f"🚨 *FED / FOMC - Kevin Warsh* 🚨\n\n{resultado}\n\n📰 *Original:* {titulo}\n🔗 {noticia['url']}"
-                    bot.send_message(CHAT_ID, mensaje_final, parse_mode='Markdown')
-                    print(f"✅ ENVIADO A TELEGRAM: {titulo}")
+                print(f"Analizando: {titulo[:90]}", flush=True)
+                res = es_relevante_y_traducir(titulo, n.get('description',''))
+                if res:
+                    bot.send_message(CHAT_ID, f"🚨 *FED - Warsh* 🚨\n\n{res}\n\n📰 {titulo}\n🔗 {n['url']}", parse_mode='Markdown')
+                    print(f"✅ ENVIADO", flush=True)
                 else:
-                    print(f"❌ DESCARTADO (no es FED): {titulo}")
-
-                enviados.add(titulo) # Lo marcamos como visto para no repetir
-
-        # Esperamos 15 minutos (900 segundos) antes de buscar otra vez. Así no gastamos cuota de NewsAPI.
-        print("Durmiendo 15 min...")
+                    print(f"❌ DESCARTADO (no es FED)", flush=True)
+                enviados.add(titulo)
+        print("Durmiendo 15 min...", flush=True)
         time.sleep(900)
     except Exception as e:
-        print(f"Error en bucle principal: {e}")
-        time.sleep(60) # Si falla, espera 1 min y reintenta
+        print(f"Error bucle: {e}", flush=True)
+        time.sleep(60)
