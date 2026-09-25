@@ -1,6 +1,17 @@
 import os, requests, time, telebot
 from groq import Groq
 from datetime import datetime
+from flask import Flask
+import threading
+
+# --- Truco para que Render no apague el free ---
+app = Flask(__name__)
+@app.route('/')
+def home(): return "Bot FOMC 24/7 ON"
+def run_web():
+    app.run(host='0.0.0.0', port=10000)
+threading.Thread(target=run_web, daemon=True).start()
+# --- Fin truco ---
 
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
@@ -18,33 +29,26 @@ def traducir(texto):
             messages=[{"role":"user","content":f"Traduce al español de España y dime en 2 líneas si es bueno o malo para bolsa y bitcoin. Simple y directo. Texto: {texto}"}]
         )
         return r.choices[0].message.content
-    except Exception as e:
-        print(f"Error IA: {e}")
+    except:
         return texto
 
 def noticias_fomc():
     url = f"https://newsapi.org/v2/everything?q=FED OR FOMC OR Powell&language=en&sortBy=publishedAt&pageSize=5&apiKey={NEWS_KEY}"
     try:
-        data = requests.get(url).json()
-        return data.get('articles', [])
+        return requests.get(url).json().get('articles', [])
     except:
         return []
 
 print("Bot FOMC iniciado...")
 while True:
     try:
-        noticias = noticias_fomc()
-        for n in noticias:
-            titulo = n['title']
-            if titulo not in enviados:
-                desc = n.get('description') or ""
-                traduccion = traducir(titulo + " - " + desc[:200])
-                msg = f"🚨 NOTICIA FED/FOMC 🚨\n\n{traduccion}\n\n📰 Original: {titulo}\n🔗 {n['url']}"
+        for n in noticias_fomc():
+            if n['title'] not in enviados:
+                t = traducir(n['title'] + " - " + (n.get('description') or "")[:200])
+                msg = f"🚨 FED/FOMC 🚨\n\n{t}\n\n📰 {n['title']}\n🔗 {n['url']}"
                 bot.send_message(CHAT_ID, msg)
-                enviados.add(titulo)
-
-        print(f"Revisado: {datetime.now()}")
+                enviados.add(n['title'])
         time.sleep(1800)
     except Exception as e:
-        print(f"Error {e}")
+        print(e)
         time.sleep(60)
