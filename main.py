@@ -2,20 +2,25 @@ import os, requests, time, threading
 from datetime import datetime
 from groq import Groq
 from flask import Flask
-import language_tool_python
-
-# Iniciamos el corrector una sola vez para que no sea lento
-try:
-    tool = language_tool_python.LanguageTool('es-ES')
-except:
-    tool = None
+import requests
 
 def corregir_ortografia(texto):
-    if not tool or not texto:
+    if not texto:
         return texto
     try:
-        # Esto corrige tildes, b/v, h, comas, todo
-        return tool.correct(texto)
+        r = requests.post("https://api.languagetool.org/v2/check",
+                          data={"text": texto, "language": "es-ES"},
+                          timeout=15)
+        data = r.json()
+        corregido = texto
+        # Aplicamos correcciones de atrás hacia adelante para no liar offsets
+        for m in reversed(data.get("matches", [])):
+            if m.get("replacements"):
+                repl = m["replacements"][0]["value"]
+                inicio = m["offset"]
+                largo = m["length"]
+                corregido = corregido[:inicio] + repl + corregido[inicio+largo:]
+        return corregido
     except:
         return texto
 
