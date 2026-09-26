@@ -144,7 +144,7 @@ def run_flask():
 # ========= LOOP PRINCIPAL =========
 def main_loop():
     print("BOT V4.0 INICIADO - SOLO WARSH / FOMC / FEDWATCH - ANTI SPAM")
-    enviar_telegram("✅ **BOT V4.0 CONECTADO**\nFiltro: SOLO Kevin Warsh, Decision Tipos, Comunicado FOMC, Conferencia y FedWatch. Anti-spam activo. Modo Web Service con puerto abierto.")
+    enviar_telegram("prueba ortografia: decision economica sin tilde, mas informacion y ultimo aviso")
     while True:
         check_news()
         check_fechas_fomc()
