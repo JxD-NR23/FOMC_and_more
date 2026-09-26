@@ -1,4 +1,3 @@
 Flask
 groq
 requests
-language-tool-python
