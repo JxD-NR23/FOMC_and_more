@@ -2,6 +2,22 @@ import os, requests, time, threading
 from datetime import datetime
 from groq import Groq
 from flask import Flask
+import language_tool_python
+
+# Iniciamos el corrector una sola vez para que no sea lento
+try:
+    tool = language_tool_python.LanguageTool('es-ES')
+except:
+    tool = None
+
+def corregir_ortografia(texto):
+    if not tool or not texto:
+        return texto
+    try:
+        # Esto corrige tildes, b/v, h, comas, todo
+        return tool.correct(texto)
+    except:
+        return texto
 
 # ========= CONFIG ENV - Como lo tienes en tu foto =========
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -55,6 +71,7 @@ def traducir_y_resumir(titulo_en, desc_en):
         return f"TITULO_ES: {titulo_en}\nRESUMEN:\n- Noticia FED importante\n- Revisar detalle\n- Error resumen: {e}"
 
 def enviar_telegram(texto):
+    texto = corregir_ortografia(texto)
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         payload = {"chat_id": CHAT_ID, "text": texto, "parse_mode": "Markdown", "disable_web_page_preview": False}
