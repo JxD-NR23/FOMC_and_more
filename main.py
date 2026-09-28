@@ -138,6 +138,10 @@ def iniciar_bot():
     scheduler.start()
 
 if __name__ == "__main__":
+    print(f"ENV CHECK -> TG:{bool(TELEGRAM_TOKEN)} CHAT:{bool(CHAT_ID)} GROQ:{bool(GROQ_KEY)} NEWS:{bool(NEWSAPI_KEY)}", flush=True)
     threading.Thread(target=run_flask, daemon=True).start()
     iniciar_bot()
-    while True: time.sleep(60)
+    enviar_telegram("✅ Bot V7.1 arrancado - si ves esto, Telegram funciona")
+    print("Bot arrancado, esperando jobs...", flush=True)
+    while True: 
+        time.sleep(60)
