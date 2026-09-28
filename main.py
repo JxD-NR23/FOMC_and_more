@@ -138,12 +138,14 @@ def get_fedwatch_text():
 
 def check_fedwatch():
     print("[FedWatch] Check 09:00", flush=True)
+    texto_base = get_fedwatch_text()
     if is_blackout():
-        print("[FedWatch] Estamos en BLACKOUT, no se envía", flush=True)
-        enviar_telegram(f"🔇 Blackout FOMC activo. Quedan {days_until_fomc()} días para FOMC ({get_next_fomc()}). No hay discursos ni FedWatch hasta después.")
-        return
-    texto = get_fedwatch_text()
-    enviar_telegram(texto)
+        d = days_until_fomc()
+        nxt = get_next_fomc()
+        texto = f"🔇 Blackout FOMC activo - {d} días para FOMC ({nxt})\nNo hay discursos de la FED hoy.\n\n{texto_base}\n\n(Probabilidades son del mercado, siguen vivas aunque haya blackout)"
+        enviar_telegram(texto)
+    else:
+        enviar_telegram(texto_base)
 
 def check_discursos():
     print("[Discursos] Check 08:00", flush=True)
