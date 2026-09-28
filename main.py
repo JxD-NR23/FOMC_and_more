@@ -11,10 +11,13 @@ DATA_DIR = Path(os.getenv("DATA_DIR", "/tmp"))
 DATA_FILE = DATA_DIR / "fomc_state.json"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-client = Groq(api_key=os.getenv("GROQ_KEY"))
+GROQ_KEY = os.getenv("GROQ_KEY")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 NEWSAPI_KEY = os.getenv("NEWSAPI_KEY")
+NEWS_KEY = os.getenv("NEWS_KEY") # por compatibilidad
+
+client = Groq(api_key=GROQ_KEY)
 
 PALABRAS_PROTEGIDAS = ["FOMC", "FED", "SEC", "BTC", "ETH", "ETF", "CPI", "PCE", "NFP", "Powell", "Warsh", "FedWatch", "CME", "USA", "BCE", "FOMC", "FEDWATCH"]
 
