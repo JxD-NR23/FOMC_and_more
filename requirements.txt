@@ -4,3 +4,5 @@ flask
 apscheduler
 matplotlib
 beautifulsoup4
+cme-fedwatch
+curl_cffi
