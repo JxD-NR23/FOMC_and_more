@@ -131,23 +131,26 @@ def check_news():
 
 def get_fedwatch_probabilities():
     try:
-        headers = {"User-Agent": "Mozilla/5.0"}
-        r = requests.get("https://www.cmegroup.com/CmeWS/mvc/xslt/FedWatchTool", headers=headers, timeout=20)
-        if r.status_code==200:
-            try:
-                data = r.json()
-                meetings = data.get("meetings") or (data.get("FederalReserve") or {}).get("meetings")
-                if meetings:
-                    probs = meetings[0].get("probabilities", [])
-                    parsed = []
-                    for p in probs:
-                        rate = p.get("targetRate"); prob = p.get("probability")
-                        if rate and prob is not None: parsed.append({"rate": str(rate), "prob": float(prob)})
-                    if parsed: return parsed
-            except: pass
-    except Exception as e: print(f"[FedWatch fetch] {e}", flush=True)
-    # Fallback gráfico funcional
-    return [{"rate":"3.75-4.00%","prob":15.2},{"rate":"4.00-4.25%","prob":58.5},{"rate":"4.25-4.50%","prob":26.3}]
+        from cme_fedwatch import get_probabilities
+        # intenta la fecha del próximo FOMC, si no "next"
+        try:
+            data = get_probabilities("2026-10-28")
+        except:
+            data = get_probabilities("next")
+
+        meetings = data.get("meetings", [])
+        if meetings:
+            probs_dict = meetings[0].get("probabilities", {}) # {"3.75%-4.00%": 27.5, "4.00%-4.25%": 72.5}
+            parsed = [{"rate": k.replace("%","%"), "prob": float(v)} for k,v in probs_dict.items() if v > 0.05]
+            parsed.sort(key=lambda x: x["rate"])
+            if parsed:
+                print(f"[FedWatch real] {parsed}", flush=True)
+                return parsed
+    except Exception as e:
+        print(f"[FedWatch real] Error: {e}", flush=True)
+
+    # fallback si CME no responde
+    return [{"rate": "375-400", "prob": 27.5}, {"rate": "400-425", "prob": 72.5}]
 
 def generar_grafico_fedwatch(probs, path):
     rates = [p['rate'] for p in probs]; vals = [p['prob'] for p in probs]
